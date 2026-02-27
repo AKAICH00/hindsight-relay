@@ -42,7 +42,7 @@ func LoadConfig() (Config, error) {
 		QdrantAPIKey:  strings.TrimSpace(os.Getenv("QDRANT_API_KEY")),
 		Port:          getEnv("PORT", defaultPort),
 		LogLevel:      strings.ToLower(getEnv("LOG_LEVEL", "info")),
-		WatchState:    "watched.json",
+		WatchState:    getEnv("WATCH_STATE", "watched.json"),
 		ServiceName:   "hindsight-relay",
 		ServiceVer:    serviceVersion,
 		QueueMaxDepth: 1000,
