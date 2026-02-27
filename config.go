@@ -10,7 +10,7 @@ import (
 
 const (
 	defaultPort      = "7358"
-	defaultQdrantURL = "http://localhost:6333"
+	defaultQdrantURL = "http://localhost:6334"
 	serviceVersion   = "0.1.0"
 )
 
