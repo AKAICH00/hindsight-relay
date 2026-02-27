@@ -134,7 +134,6 @@ func channelKey(channelType, id string) string {
 
 const (
 	contactsCollection = "lattice_contacts"
-	contactsDim        = uint64(1536)
 	baselineMinMsgs    = 10
 )
 
@@ -143,18 +142,19 @@ type ContactStore struct {
 	emb     *Embedder
 	index   *ContactIndex
 	agentID string
+	dim     uint64
 }
 
-func NewContactStore(qc *QdrantClient, emb *Embedder, agentID, indexPath string) (*ContactStore, error) {
+func NewContactStore(qc *QdrantClient, emb *Embedder, agentID, indexPath string, dim uint64) (*ContactStore, error) {
 	idx := NewContactIndex(indexPath)
 	if err := idx.Load(); err != nil {
 		return nil, fmt.Errorf("load contact index: %w", err)
 	}
-	return &ContactStore{qc: qc, emb: emb, index: idx, agentID: agentID}, nil
+	return &ContactStore{qc: qc, emb: emb, index: idx, agentID: agentID, dim: dim}, nil
 }
 
 func (cs *ContactStore) EnsureCollection(ctx context.Context) error {
-	return cs.qc.EnsureCollection(ctx, contactsCollection, contactsDim)
+	return cs.qc.EnsureCollection(ctx, contactsCollection, cs.dim)
 }
 
 // Register creates a new contact. Returns error if primary channel already registered.

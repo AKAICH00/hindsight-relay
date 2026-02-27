@@ -15,11 +15,19 @@ const embeddingBatchSize = 100
 // Embedder wraps the OpenAI client for embedding operations.
 type Embedder struct {
 	client *openai.Client
+	model  openai.EmbeddingModel
 }
 
-// NewEmbedder creates a new Embedder with the given API key.
-func NewEmbedder(apiKey string) *Embedder {
-	return &Embedder{client: openai.NewClient(apiKey)}
+// NewEmbedder creates a new Embedder with the given API key and model.
+func NewEmbedder(apiKey, model string) *Embedder {
+	em := openai.SmallEmbedding3 // default
+	switch model {
+	case "text-embedding-3-large":
+		em = openai.LargeEmbedding3
+	case "text-embedding-ada-002":
+		em = openai.AdaEmbeddingV2
+	}
+	return &Embedder{client: openai.NewClient(apiKey), model: em}
 }
 
 // EmbedBatch embeds a slice of texts using text-embedding-3-small.
@@ -54,7 +62,7 @@ func (e *Embedder) embedWithBackoff(ctx context.Context, texts []string) ([][]fl
 	var lastErr error
 	for attempt := 0; attempt <= len(backoffs); attempt++ {
 		resp, err := e.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-			Model: openai.SmallEmbedding3,
+			Model: e.model,
 			Input: texts,
 		})
 		if err == nil {

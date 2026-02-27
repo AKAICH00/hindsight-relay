@@ -31,8 +31,10 @@ type Config struct {
 	ServiceName   string
 	ServiceVer    string
 	QueueMaxDepth int
-	AgentID       string // which agent this relay instance serves
-	ContactsIndex string // path to contacts.json fast-lookup index
+	AgentID        string // which agent this relay instance serves
+	ContactsIndex  string // path to contacts.json fast-lookup index
+	EmbeddingModel string // openai embedding model (default: text-embedding-3-small)
+	EmbeddingDim   uint64 // vector dimensions (derived from model)
 }
 
 func LoadConfig() (Config, error) {
@@ -46,8 +48,19 @@ func LoadConfig() (Config, error) {
 		ServiceName:   "hindsight-relay",
 		ServiceVer:    serviceVersion,
 		QueueMaxDepth: 1000,
-		AgentID:       getEnv("AGENT_ID", "main"),
-		ContactsIndex: getEnv("CONTACTS_INDEX", "contacts.json"),
+		AgentID:        getEnv("AGENT_ID", "main"),
+		ContactsIndex:  getEnv("CONTACTS_INDEX", "contacts.json"),
+		EmbeddingModel: getEnv("EMBEDDING_MODEL", "text-embedding-3-small"),
+	}
+
+	// Derive dimension from model
+	switch cfg.EmbeddingModel {
+	case "text-embedding-3-large":
+		cfg.EmbeddingDim = 3072
+	case "text-embedding-3-small", "text-embedding-ada-002":
+		cfg.EmbeddingDim = 1536
+	default:
+		cfg.EmbeddingDim = 1536
 	}
 
 	if cfg.OpenAIAPIKey == "" {

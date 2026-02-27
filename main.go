@@ -55,8 +55,8 @@ func (a *App) embedAndUpsert(
 		log.Printf("[warn] "+f, args...)
 	})
 
-	// Ensure collection exists (1536 dims for text-embedding-3-small)
-	if err := a.qdrant.EnsureCollection(ctx, collection, 1536); err != nil {
+	// Ensure collection exists with configured dimensions
+	if err := a.qdrant.EnsureCollection(ctx, collection, a.cfg.EmbeddingDim); err != nil {
 		return nil, fmt.Errorf("ensure collection: %w", err)
 	}
 
@@ -488,25 +488,37 @@ func main() {
 	app := &App{
 		cfg:       cfg,
 		qdrant:    qc,
-		embedder:  NewEmbedder(cfg.OpenAIAPIKey),
+		embedder:  NewEmbedder(cfg.OpenAIAPIKey, cfg.EmbeddingModel),
 		queue:     NewRetryQueue(cfg.QueueMaxDepth),
 		diverge:   NewDivergenceEngine(qc),
 		startTime: time.Now(),
 	}
 
-	// Contact store (per-agent, separate registry)
-	contactStore, err := NewContactStore(qc, app.embedder, cfg.AgentID, cfg.ContactsIndex)
-	if err != nil {
-		log.Printf("[warn] contact store init failed: %v — contacts disabled", err)
-	} else {
-		ctx0 := context.Background()
-		if err := contactStore.EnsureCollection(ctx0); err != nil {
-			log.Printf("[warn] contacts collection init failed: %v — contacts disabled", err)
-		} else {
-			app.contacts = contactStore
-			log.Printf("[startup] contact store ready (agent: %s)", cfg.AgentID)
+	// Contact store — init in background with retries so startup is never blocked
+	go func() {
+		backoffs := []time.Duration{2, 5, 10, 30, 60}
+		for i := 0; ; i++ {
+			cs, err := NewContactStore(qc, app.embedder, cfg.AgentID, cfg.ContactsIndex, cfg.EmbeddingDim)
+			if err != nil {
+				delay := backoffs[min(i, len(backoffs)-1)] * time.Second
+				log.Printf("[contacts] init failed (%v), retrying in %s", err, delay)
+				time.Sleep(delay)
+				continue
+			}
+			ctx0 := context.Background()
+			if err := cs.EnsureCollection(ctx0); err != nil {
+				delay := backoffs[min(i, len(backoffs)-1)] * time.Second
+				log.Printf("[contacts] collection init failed (%v), retrying in %s", err, delay)
+				time.Sleep(delay)
+				continue
+			}
+			app.mu.Lock()
+			app.contacts = cs
+			app.mu.Unlock()
+			log.Printf("[contacts] ready (agent: %s)", cfg.AgentID)
+			return
 		}
-	}
+	}()
 
 	// Watcher
 	watcher, err := NewWatcher(func(path string) {
