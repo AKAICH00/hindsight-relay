@@ -36,3 +36,27 @@
 2026/02/26 20:20:07 [watcher] file changed: /Users/botbot/.openclaw/workspace/memory/watcher-test.md
 2026/02/26 20:20:08 [watcher] embedded 1 chunks from /Users/botbot/.openclaw/workspace/memory/watcher-test.md
 2026/02/26 20:20:08 [watcher] REMOVE: /Users/botbot/.openclaw/workspace/memory/watcher-test.md (ignored)
+2026/02/26 20:20:22 [watcher] file changed: /Users/botbot/.openclaw/workspace/MEMORY.md
+2026/02/26 20:20:24 [watcher] embedded 3 chunks from /Users/botbot/.openclaw/workspace/MEMORY.md
+2026/02/26 20:22:45 [watcher] file changed: /Users/botbot/.openclaw/workspace/memory/relay-test.md
+2026/02/26 20:22:46 [watcher] embedded 1 chunks from /Users/botbot/.openclaw/workspace/memory/relay-test.md
+2026/02/26 20:23:16 [watcher] REMOVE: /Users/botbot/.openclaw/workspace/memory/relay-test.md (ignored)
+2026/02/26 20:32:03 [watcher] file changed: /Users/botbot/.openclaw/workspace/MEMORY.md
+2026/02/26 20:32:04 [watcher] embedded 4 chunks from /Users/botbot/.openclaw/workspace/MEMORY.md
+2026/02/26 20:32:07 [watcher] file changed: /Users/botbot/.openclaw/workspace/PRIORITIES.md
+2026/02/26 20:32:08 [watcher] embedded 1 chunks from /Users/botbot/.openclaw/workspace/PRIORITIES.md
+2026/02/26 20:35:43 [shutdown] draining queue...
+2026/02/26 20:35:43 [shutdown] stopping server...
+/Users/botbot/.zshenv:.:1: operation not permitted: /Users/botbot/.cargo/env
+2026/02/26 20:35:46 [startup] contact store ready (agent: main)
+2026/02/26 20:35:46 [startup] hindsight-relay v0.1.0 ready on :7358, watching 2 dirs
+
+ ┌───────────────────────────────────────────────────┐ 
+ │                  Fiber v2.52.10                   │ 
+ │               http://127.0.0.1:7358               │ 
+ │       (bound on host 0.0.0.0 and port 7358)       │ 
+ │                                                   │ 
+ │ Handlers ............ 13  Processes ........... 1 │ 
+ │ Prefork ....... Disabled  PID ............. 19945 │ 
+ └───────────────────────────────────────────────────┘ 
+

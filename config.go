@@ -31,6 +31,8 @@ type Config struct {
 	ServiceName   string
 	ServiceVer    string
 	QueueMaxDepth int
+	AgentID       string // which agent this relay instance serves
+	ContactsIndex string // path to contacts.json fast-lookup index
 }
 
 func LoadConfig() (Config, error) {
@@ -44,6 +46,8 @@ func LoadConfig() (Config, error) {
 		ServiceName:   "hindsight-relay",
 		ServiceVer:    serviceVersion,
 		QueueMaxDepth: 1000,
+		AgentID:       getEnv("AGENT_ID", "main"),
+		ContactsIndex: getEnv("CONTACTS_INDEX", "contacts.json"),
 	}
 
 	if cfg.OpenAIAPIKey == "" {

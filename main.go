@@ -27,6 +27,8 @@ type App struct {
 	embedder  *Embedder
 	queue     *RetryQueue
 	watcher   *Watcher
+	contacts  *ContactStore
+	diverge   *DivergenceEngine
 
 	mu              sync.Mutex
 	embeddingsTotal int64
@@ -193,11 +195,12 @@ func (a *App) setupRoutes(fib *fiber.App) {
 	// POST /embed
 	fib.Post("/embed", func(c *fiber.Ctx) error {
 		var req struct {
-			AgentID   string `json:"agent_id"`
-			Text      string `json:"text"`
-			Source    string `json:"source"`
-			Role      string `json:"role"`
-			Timestamp int64  `json:"timestamp"`
+			AgentID     string `json:"agent_id"`
+			Text        string `json:"text"`
+			Source      string `json:"source"`
+			Role        string `json:"role"`
+			Timestamp   int64  `json:"timestamp"`
+			ContactUUID string `json:"contact_uuid"`
 		}
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error()})
@@ -208,9 +211,43 @@ func (a *App) setupRoutes(fib *fiber.App) {
 
 		chunks := ChunkText(req.Text)
 		heading := ExtractHeading(req.Text)
+
+		// If contact_uuid provided, resolve and verify identity
+		var contact *Contact
+		var divResult *DivergenceResult
+		if req.ContactUUID != "" && a.contacts != nil {
+			ct, err := a.contacts.GetByUUID(c.Context(), req.ContactUUID)
+			if err == nil && ct != nil {
+				ok, stored, computed := ct.VerifyHash()
+				if !ok {
+					return c.Status(400).JSON(fiber.Map{
+						"ok":    false,
+						"error": "identity hash mismatch — possible tampering",
+						"stored_hash": stored, "computed_hash": computed,
+					})
+				}
+				contact = ct
+			}
+		}
+
 		ids, err := a.embedAndUpsert(c.Context(), req.AgentID, chunks, req.Source, "", heading, req.Role, req.Timestamp)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+
+		// Divergence scoring
+		if contact != nil && a.diverge != nil && len(ids) > 0 {
+			// Re-embed the text to get its vector for divergence scoring
+			vecs, embedErr := a.embedder.EmbedBatch(c.Context(), []string{req.Text[:min(len(req.Text), 800)]})
+			if embedErr == nil && len(vecs) > 0 {
+				collection := a.cfg.CollectionForAgent(req.AgentID, nil)
+				divResult, _ = a.diverge.Score(c.Context(), collection, req.ContactUUID, contact, vecs[0])
+			}
+			// Update contact stats
+			_ = a.contacts.RecordMessage(c.Context(), contact)
+			if divResult != nil {
+				_ = a.contacts.RecordDivergence(c.Context(), contact, divResult.Score, divResult.Alert)
+			}
 		}
 
 		vectorID := ""
@@ -218,7 +255,119 @@ func (a *App) setupRoutes(fib *fiber.App) {
 			vectorID = ids[0]
 		}
 		collection := a.cfg.CollectionForAgent(req.AgentID, nil)
-		return c.JSON(fiber.Map{"ok": true, "vector_id": vectorID, "collection": collection})
+
+		resp := fiber.Map{"ok": true, "vector_id": vectorID, "collection": collection}
+		if req.ContactUUID != "" {
+			resp["contact_uuid"] = req.ContactUUID
+		}
+		if divResult != nil {
+			resp["divergence"] = divResult
+		}
+		return c.JSON(resp)
+	})
+
+	// ---------------------------------------------------------------------------
+	// Contact routes
+	// ---------------------------------------------------------------------------
+
+	// POST /contacts/register
+	fib.Post("/contacts/register", func(c *fiber.Ctx) error {
+		if a.contacts == nil {
+			return c.Status(503).JSON(fiber.Map{"ok": false, "error": "contact store not initialized"})
+		}
+		var req struct {
+			Name          string            `json:"name"`
+			PrimaryType   string            `json:"primary_type"`   // e.g. "whatsapp"
+			PrimaryID     string            `json:"primary_id"`     // e.g. "+521234567890"
+			ExtraChannels map[string]string `json:"extra_channels"` // optional
+			Role          string            `json:"role"`
+			Security      string            `json:"security"`
+			Language      string            `json:"language"`
+			Formality     string            `json:"formality"`
+			Topics        []string          `json:"topics"`
+			Notes         string            `json:"notes"`
+		}
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		if req.Name == "" || req.PrimaryType == "" || req.PrimaryID == "" {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "name, primary_type, and primary_id are required"})
+		}
+		contact, err := a.contacts.Register(c.Context(), req.Name, req.PrimaryType, req.PrimaryID,
+			req.ExtraChannels, ContactOpts{
+				Role: req.Role, Security: req.Security, Language: req.Language,
+				Formality: req.Formality, Topics: req.Topics, Notes: req.Notes,
+			})
+		if err != nil {
+			return c.Status(409).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"ok": true, "contact": contact})
+	})
+
+	// GET /contacts/lookup?type=whatsapp&id=+521234567890
+	fib.Get("/contacts/lookup", func(c *fiber.Ctx) error {
+		if a.contacts == nil {
+			return c.Status(503).JSON(fiber.Map{"ok": false, "error": "contact store not initialized"})
+		}
+		channelType := c.Query("type")
+		id := c.Query("id")
+		uuid := c.Query("uuid")
+
+		var contact *Contact
+		var err error
+		if uuid != "" {
+			contact, err = a.contacts.GetByUUID(c.Context(), uuid)
+		} else if channelType != "" && id != "" {
+			contact, err = a.contacts.Lookup(c.Context(), channelType, id)
+		} else {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": "provide uuid or type+id"})
+		}
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		if contact == nil {
+			return c.Status(404).JSON(fiber.Map{"ok": false, "error": "contact not found"})
+		}
+		return c.JSON(fiber.Map{"ok": true, "contact": contact})
+	})
+
+	// POST /contacts/verify
+	fib.Post("/contacts/verify", func(c *fiber.Ctx) error {
+		if a.contacts == nil {
+			return c.Status(503).JSON(fiber.Map{"ok": false, "error": "contact store not initialized"})
+		}
+		var req struct {
+			UUID string `json:"uuid"`
+		}
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		contact, err := a.contacts.GetByUUID(c.Context(), req.UUID)
+		if err != nil || contact == nil {
+			return c.Status(404).JSON(fiber.Map{"ok": false, "error": "contact not found"})
+		}
+		ok, stored, computed := contact.VerifyHash()
+		return c.JSON(fiber.Map{
+			"ok": true, "tampered": !ok,
+			"stored_hash": stored, "computed_hash": computed,
+			"contact_uuid": contact.UUID, "name": contact.Name,
+		})
+	})
+
+	// PATCH /contacts/:uuid
+	fib.Patch("/contacts/:uuid", func(c *fiber.Ctx) error {
+		if a.contacts == nil {
+			return c.Status(503).JSON(fiber.Map{"ok": false, "error": "contact store not initialized"})
+		}
+		var patch ContactOpts
+		if err := c.BodyParser(&patch); err != nil {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		contact, err := a.contacts.UpdateMutable(c.Context(), c.Params("uuid"), patch)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"ok": true, "contact": contact})
 	})
 
 	// POST /embed/file
@@ -341,7 +490,22 @@ func main() {
 		qdrant:    qc,
 		embedder:  NewEmbedder(cfg.OpenAIAPIKey),
 		queue:     NewRetryQueue(cfg.QueueMaxDepth),
+		diverge:   NewDivergenceEngine(qc),
 		startTime: time.Now(),
+	}
+
+	// Contact store (per-agent, separate registry)
+	contactStore, err := NewContactStore(qc, app.embedder, cfg.AgentID, cfg.ContactsIndex)
+	if err != nil {
+		log.Printf("[warn] contact store init failed: %v — contacts disabled", err)
+	} else {
+		ctx0 := context.Background()
+		if err := contactStore.EnsureCollection(ctx0); err != nil {
+			log.Printf("[warn] contacts collection init failed: %v — contacts disabled", err)
+		} else {
+			app.contacts = contactStore
+			log.Printf("[startup] contact store ready (agent: %s)", cfg.AgentID)
+		}
 	}
 
 	// Watcher
