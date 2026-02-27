@@ -1,0 +1,38 @@
+/Users/botbot/.zshenv:.:1: operation not permitted: /Users/botbot/.cargo/env
+/Users/botbot/hindsight-relay/launch.sh:5: command not found: doppler
+2026/02/26 20:19:17 config error: OPENAI_API_KEY is required
+/Users/botbot/.zshenv:.:1: operation not permitted: /Users/botbot/.cargo/env
+/Users/botbot/hindsight-relay/launch.sh:5: command not found: doppler
+2026/02/26 20:19:27 config error: OPENAI_API_KEY is required
+/Users/botbot/.zshenv:.:1: operation not permitted: /Users/botbot/.cargo/env
+/Users/botbot/hindsight-relay/launch.sh:5: command not found: doppler
+2026/02/26 20:19:39 config error: OPENAI_API_KEY is required
+/Users/botbot/.zshenv:.:1: operation not permitted: /Users/botbot/.cargo/env
+2026/02/26 20:19:49 [startup] hindsight-relay v0.1.0 ready on :7358, watching 0 dirs
+
+ ┌───────────────────────────────────────────────────┐ 
+ │                  Fiber v2.52.10                   │ 
+ │               http://127.0.0.1:7358               │ 
+ │       (bound on host 0.0.0.0 and port 7358)       │ 
+ │                                                   │ 
+ │ Handlers ............. 8  Processes ........... 1 │ 
+ │ Prefork ....... Disabled  PID ............. 12567 │ 
+ └───────────────────────────────────────────────────┘ 
+
+2026/02/26 20:19:51 [shutdown] draining queue...
+2026/02/26 20:19:51 [shutdown] stopping server...
+/Users/botbot/.zshenv:.:1: operation not permitted: /Users/botbot/.cargo/env
+2026/02/26 20:19:52 [startup] hindsight-relay v0.1.0 ready on :7358, watching 0 dirs
+
+ ┌───────────────────────────────────────────────────┐ 
+ │                  Fiber v2.52.10                   │ 
+ │               http://127.0.0.1:7358               │ 
+ │       (bound on host 0.0.0.0 and port 7358)       │ 
+ │                                                   │ 
+ │ Handlers ............. 8  Processes ........... 1 │ 
+ │ Prefork ....... Disabled  PID ............. 12609 │ 
+ └───────────────────────────────────────────────────┘ 
+
+2026/02/26 20:20:07 [watcher] file changed: /Users/botbot/.openclaw/workspace/memory/watcher-test.md
+2026/02/26 20:20:08 [watcher] embedded 1 chunks from /Users/botbot/.openclaw/workspace/memory/watcher-test.md
+2026/02/26 20:20:08 [watcher] REMOVE: /Users/botbot/.openclaw/workspace/memory/watcher-test.md (ignored)
