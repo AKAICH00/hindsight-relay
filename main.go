@@ -480,6 +480,8 @@ func main() {
 		log.Fatalf("config error: %v", err)
 	}
 
+	fmt.Printf("[startup] provider=%s model=%s dim=%d agent=%s\n", cfg.EmbeddingProvider, cfg.EmbeddingModel, cfg.EmbeddingDim, cfg.AgentID)
+
 	qc, err := NewQdrantClient(cfg.QdrantURL, cfg.QdrantAPIKey)
 	if err != nil {
 		log.Fatalf("qdrant connect: %v", err)
