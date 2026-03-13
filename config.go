@@ -35,8 +35,10 @@ type Config struct {
 	QueueMaxDepth  int
 	AgentID        string // which agent this relay instance serves
 	ContactsIndex  string // path to contacts.json fast-lookup index
-	EmbeddingModel string // model name (default: text-embedding-3-large for openai, text-embedding-004 for gemini)
-	EmbeddingDim   uint64 // vector dimensions (derived from model)
+	EmbeddingModel    string  // model name (default: text-embedding-3-large for openai, text-embedding-004 for gemini)
+	EmbeddingDim      uint64  // vector dimensions (derived from model)
+	AlertThresholdUSD float64 // threshold for cost alert (e.g. 5.00)
+	AlertWebhookURL   string  // webhook for alerts
 }
 
 func LoadConfig() (Config, error) {
@@ -54,7 +56,11 @@ func LoadConfig() (Config, error) {
 		QueueMaxDepth:     1000,
 		AgentID:           getEnv("AGENT_ID", "main"),
 		ContactsIndex:     getEnv("CONTACTS_INDEX", "contacts.json"),
+		AlertWebhookURL:   getEnv("ALERT_WEBHOOK_URL", ""),
 	}
+
+	threshold, _ := strconv.ParseFloat(getEnv("ALERT_THRESHOLD_USD", "0.0"), 64)
+	cfg.AlertThresholdUSD = threshold
 
 	// Default models based on provider
 	if cfg.EmbeddingProvider == "gemini" {

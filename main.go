@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -34,8 +37,42 @@ type App struct {
 	embeddingsTotal int64
 	tokensTotal     int64
 	costTotal       float64
+	alertTriggered  bool
 	lastSync        time.Time
 	startTime       time.Time
+}
+
+// ---------------------------------------------------------------------------
+// Alerts
+// ---------------------------------------------------------------------------
+
+func (a *App) checkAlerts() {
+	if a.cfg.AlertWebhookURL == "" || a.cfg.AlertThresholdUSD <= 0 {
+		return
+	}
+
+	a.mu.Lock()
+	cost := a.costTotal
+	triggered := a.alertTriggered
+	a.mu.Unlock()
+
+	if cost >= a.cfg.AlertThresholdUSD && !triggered {
+		log.Printf("[alert] Cost threshold exceeded: $%.6f (limit: $%.6f)", cost, a.cfg.AlertThresholdUSD)
+		
+		// Send async webhook
+		go func() {
+			payload := map[string]any{
+				"text": fmt.Sprintf("⚠️ *Gemini Cost Alert*: Threshold of $%.2f reached. Current spend: $%.6f.", 
+					a.cfg.AlertThresholdUSD, cost),
+			}
+			data, _ := json.Marshal(payload)
+			http.Post(a.cfg.AlertWebhookURL, "application/json", strings.NewReader(string(data)))
+		}()
+
+		a.mu.Lock()
+		a.alertTriggered = true
+		a.mu.Unlock()
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +108,8 @@ func (a *App) embedAndUpsert(
 	a.tokensTotal += usage.TotalTokens
 	a.costTotal += usage.EstimatedCost
 	a.mu.Unlock()
+
+	a.checkAlerts()
 
 	var ids []string
 	for i, chunk := range chunks {
@@ -158,10 +197,100 @@ func (a *App) drainQueue(ctx context.Context) {
 }
 
 // ---------------------------------------------------------------------------
+const dashboardHTML = `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gemini Builder Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; }
+        .stat { font-size: 2.5rem; font-weight: bold; color: #38bdf8; }
+        .label { color: #94a3b8; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; margin-bottom: 10px; }
+        .gauge-container { height: 20px; background: #334155; border-radius: 10px; overflow: hidden; margin-top: 20px; }
+        .gauge-fill { height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8); transition: width 0.5s ease; }
+        h1 { margin-bottom: 30px; font-weight: 300; }
+    </style>
+</head>
+<body>
+    <h1>Gemini 2026 : Builder Dashboard</h1>
+    <div class="grid">
+        <div class="card">
+            <div class="label">Total Spend (USD)</div>
+            <div id="cost" class="stat">$0.000000</div>
+            <div class="gauge-container"><div id="costGauge" class="gauge-fill" style="width: 0%"></div></div>
+            <div id="thresholdLabel" style="font-size: 0.7rem; color: #64748b; margin-top: 5px;"></div>
+        </div>
+        <div class="card">
+            <div class="label">Total Tokens</div>
+            <div id="tokens" class="stat">0</div>
+        </div>
+        <div class="card">
+            <div class="label">Velocity (Embeds/Min)</div>
+            <div id="velocity" class="stat">0.0</div>
+        </div>
+        <div class="card" style="grid-column: span 2;">
+            <div class="label">Live Embedding Stream</div>
+            <canvas id="chart" height="100"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('chart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Embeddings', data: [], borderColor: '#38bdf8', tension: 0.4, fill: true, backgroundColor: 'rgba(56, 189, 248, 0.1)' }] },
+            options: { scales: { y: { beginAtZero: true, grid: { color: '#334155' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+        });
+
+        async function update() {
+            const [statsResp, usageResp] = await Promise.all([fetch('/stats'), fetch('/usage')]);
+            const stats = await statsResp.json();
+            const usage = await usageResp.json();
+
+            document.getElementById('cost').innerText = '$' + usage.estimated_cost_usd;
+            document.getElementById('tokens').innerText = usage.total_tokens.toLocaleString();
+            document.getElementById('velocity').innerText = stats.embeddings_per_min.toFixed(1);
+
+            // Update Gauge
+            const threshold = parseFloat(window.threshold || 0);
+            if (threshold > 0) {
+                const percent = Math.min((parseFloat(usage.estimated_cost_usd) / threshold) * 100, 100);
+                document.getElementById('costGauge').style.width = percent + '%';
+                document.getElementById('thresholdLabel').innerText = 'Limit: $' + threshold.toFixed(2);
+                if (percent > 90) document.getElementById('costGauge').style.background = '#f43f5e';
+            }
+
+            // Update Chart
+            const now = new Date().toLocaleTimeString();
+            chart.data.labels.push(now);
+            chart.data.datasets[0].data.push(stats.embeddings_total);
+            if (chart.data.labels.length > 20) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+            chart.update();
+        }
+
+        window.threshold = {{.Threshold}};
+        update();
+        setInterval(update, 5000);
+    </script>
+</body>
+</html>
+`
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
 func (a *App) setupRoutes(fib *fiber.App) {
+	// GET /dashboard
+	fib.Get("/dashboard", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/html")
+		html := strings.ReplaceAll(dashboardHTML, "{{.Threshold}}", fmt.Sprintf("%.6f", a.cfg.AlertThresholdUSD))
+		return c.SendString(html)
+	})
+
 	// GET /health
 	fib.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
