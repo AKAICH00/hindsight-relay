@@ -32,6 +32,8 @@ type App struct {
 
 	mu              sync.Mutex
 	embeddingsTotal int64
+	tokensTotal     int64
+	costTotal       float64
 	lastSync        time.Time
 	startTime       time.Time
 }
@@ -60,10 +62,15 @@ func (a *App) embedAndUpsert(
 		return nil, fmt.Errorf("ensure collection: %w", err)
 	}
 
-	vecs, err := a.embedder.EmbedBatch(ctx, chunks)
+	vecs, usage, err := a.embedder.EmbedBatch(ctx, chunks)
 	if err != nil {
 		return nil, fmt.Errorf("embed: %w", err)
 	}
+
+	a.mu.Lock()
+	a.tokensTotal += usage.TotalTokens
+	a.costTotal += usage.EstimatedCost
+	a.mu.Unlock()
 
 	var ids []string
 	for i, chunk := range chunks {
@@ -165,10 +172,55 @@ func (a *App) setupRoutes(fib *fiber.App) {
 		})
 	})
 
+	// GET /usage
+	fib.Get("/usage", func(c *fiber.Ctx) error {
+		a.mu.Lock()
+		tokens := a.tokensTotal
+		cost := a.costTotal
+		a.mu.Unlock()
+
+		return c.JSON(fiber.Map{
+			"ok":               true,
+			"provider":         a.cfg.EmbeddingProvider,
+			"model":            a.cfg.EmbeddingModel,
+			"total_tokens":     tokens,
+			"estimated_cost_usd": fmt.Sprintf("%.6f", cost),
+		})
+	})
+
+	// POST /count-tokens
+	fib.Post("/count-tokens", func(c *fiber.Ctx) error {
+		var req struct {
+			Texts []string `json:"texts"`
+		}
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(400).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		
+		tokens, err := a.embedder.CountTokens(c.Context(), req.Texts)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"ok": false, "error": err.Error()})
+		}
+		
+		// Estimate cost
+		cost := float64(tokens) * 0.00000001 // Default Gemini rate
+		if a.cfg.EmbeddingProvider == "openai" {
+			cost = float64(tokens) * 0.00000013
+		}
+
+		return c.JSON(fiber.Map{
+			"ok":               true,
+			"token_count":      tokens,
+			"estimated_cost_usd": fmt.Sprintf("%.6f", cost),
+		})
+	})
+
 	// GET /stats
 	fib.Get("/stats", func(c *fiber.Ctx) error {
 		total := atomic.LoadInt64(&a.embeddingsTotal)
 		a.mu.Lock()
+		tokens := a.tokensTotal
+		cost := a.costTotal
 		lastSync := a.lastSync
 		a.mu.Unlock()
 
@@ -185,6 +237,8 @@ func (a *App) setupRoutes(fib *fiber.App) {
 
 		return c.JSON(fiber.Map{
 			"embeddings_total":   total,
+			"tokens_total":       tokens,
+			"estimated_cost_usd": fmt.Sprintf("%.6f", cost),
 			"embeddings_per_min": perMin,
 			"last_sync":          lastSyncStr,
 			"watched_dirs":       a.watcher.Count(),
@@ -238,8 +292,13 @@ func (a *App) setupRoutes(fib *fiber.App) {
 		// Divergence scoring
 		if contact != nil && a.diverge != nil && len(ids) > 0 {
 			// Re-embed the text to get its vector for divergence scoring
-			vecs, embedErr := a.embedder.EmbedBatch(c.Context(), []string{req.Text[:min(len(req.Text), 800)]})
+			vecs, usage, embedErr := a.embedder.EmbedBatch(c.Context(), []string{req.Text[:min(len(req.Text), 800)]})
 			if embedErr == nil && len(vecs) > 0 {
+				a.mu.Lock()
+				a.tokensTotal += usage.TotalTokens
+				a.costTotal += usage.EstimatedCost
+				a.mu.Unlock()
+
 				collection := a.cfg.CollectionForAgent(req.AgentID, nil)
 				divResult, _ = a.diverge.Score(c.Context(), collection, req.ContactUUID, contact, vecs[0])
 			}

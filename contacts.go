@@ -314,7 +314,7 @@ func (cs *ContactStore) upsertToQdrant(ctx context.Context, c *Contact) error {
 	// Embed the contact's searchable description
 	description := fmt.Sprintf("%s %s %s %s %s",
 		c.Name, c.Role, c.Notes, c.Language, strings.Join(c.Topics, " "))
-	vecs, err := cs.emb.EmbedBatch(ctx, []string{description})
+	vecs, _, err := cs.emb.EmbedBatch(ctx, []string{description})
 	if err != nil {
 		return fmt.Errorf("embed contact: %w", err)
 	}
