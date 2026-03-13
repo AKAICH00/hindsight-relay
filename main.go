@@ -24,7 +24,7 @@ import (
 type App struct {
 	cfg       Config
 	qdrant    *QdrantClient
-	embedder  *Embedder
+	embedder  *MultiEmbedder
 	queue     *RetryQueue
 	watcher   *Watcher
 	contacts  *ContactStore
@@ -485,10 +485,21 @@ func main() {
 		log.Fatalf("qdrant connect: %v", err)
 	}
 
+	var embedImpl EmbedderInterface
+	if cfg.EmbeddingProvider == "gemini" {
+		gi, err := NewGeminiEmbedder(context.Background(), cfg.GoogleAPIKey, cfg.EmbeddingModel)
+		if err != nil {
+			log.Fatalf("gemini init: %v", err)
+		}
+		embedImpl = gi
+	} else {
+		embedImpl = NewOpenAIEmbedder(cfg.OpenAIAPIKey, cfg.EmbeddingModel)
+	}
+
 	app := &App{
 		cfg:       cfg,
 		qdrant:    qc,
-		embedder:  NewEmbedder(cfg.OpenAIAPIKey, cfg.EmbeddingModel),
+		embedder:  NewMultiEmbedder(embedImpl),
 		queue:     NewRetryQueue(cfg.QueueMaxDepth),
 		diverge:   NewDivergenceEngine(qc),
 		startTime: time.Now(),

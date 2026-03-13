@@ -42,7 +42,7 @@ spec:
             - name: PORT
               value: "7358"
             - name: QDRANT_URL
-              value: "http://192.168.0.16:6334"
+              value: "http://qdrant:6334"
             - name: CONTACTS_INDEX
               value: "/data/contacts.json"
             - name: WATCH_STATE

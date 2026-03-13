@@ -101,7 +101,7 @@ Default collection if agent not in map: `{agent_id}_memories`
 - Include file path + heading context in each chunk's payload
 
 ## Embedding Model
-- `text-embedding-3-small` (1536 dims) — matches existing Hindsight setup
+- `text-embedding-3-large` (3072 dims) — matches the active OpenClaw Hindsight v2 setup
 - Batch up to 100 chunks per OpenAI API call
 
 ## Deduplication

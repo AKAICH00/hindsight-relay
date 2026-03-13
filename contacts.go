@@ -139,13 +139,13 @@ const (
 
 type ContactStore struct {
 	qc      *QdrantClient
-	emb     *Embedder
+	emb     *MultiEmbedder
 	index   *ContactIndex
 	agentID string
 	dim     uint64
 }
 
-func NewContactStore(qc *QdrantClient, emb *Embedder, agentID, indexPath string, dim uint64) (*ContactStore, error) {
+func NewContactStore(qc *QdrantClient, emb *MultiEmbedder, agentID, indexPath string, dim uint64) (*ContactStore, error) {
 	idx := NewContactIndex(indexPath)
 	if err := idx.Load(); err != nil {
 		return nil, fmt.Errorf("load contact index: %w", err)
